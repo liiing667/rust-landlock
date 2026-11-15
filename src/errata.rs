@@ -55,17 +55,24 @@ pub enum Erratum {
 impl Erratum {
     /// Queries the running kernel for fixed errata.
     ///
-    /// Returns a bitmask of errata that have been fixed in the running
-    /// kernel.  Unknown errata bits from newer kernels are preserved.
-    /// Returns empty if the kernel doesn't support the errata interface.
+    /// Returns the errata that have been fixed in the running kernel and that
+    /// are known at build time.
+    ///
+    /// Bits reported by a newer kernel but unknown to this crate version are
+    /// masked out instead of being silently merged: callers can only make
+    /// decisions about errata they understand, and a returned mask never
+    /// contains undefined bits.  Returns empty if the kernel doesn't support
+    /// the errata interface.
     pub fn current() -> BitFlags<Self> {
         let ret = unsafe {
             uapi::landlock_create_ruleset(std::ptr::null(), 0, uapi::LANDLOCK_CREATE_RULESET_ERRATA)
         };
         if ret >= 0 {
-            // SAFETY: The kernel may return bits unknown to this crate version.
-            // Using from_bits_unchecked to preserve them.
-            unsafe { BitFlags::from_bits_unchecked(ret as u32) }
+            // Intersect with the known bits so unknown kernel bits can never
+            // leak into the returned BitFlags.
+            let known = BitFlags::<Self>::all().bits();
+            BitFlags::from_bits(ret as u32 & known)
+                .expect("intersection with all known bits is always valid")
         } else {
             BitFlags::empty()
         }
@@ -204,6 +211,28 @@ fn not_backported_yet(version: (u32, u32, u32, &str)) -> BitFlags<Erratum> {
 fn errata_query() {
     // Verifies the syscall wrapper works on any kernel.
     let _errata = Erratum::current();
+}
+
+#[test]
+fn errata_mask_never_contains_unknown_bits() {
+    // Mirrors the masking performed by Erratum::current(): whatever raw
+    // bitmask a newer kernel may return, only build-time known errata survive.
+    let known = BitFlags::<Erratum>::all().bits();
+    let raw_with_unknown = known | (1 << 31) | (1 << 30);
+    let filtered = BitFlags::<Erratum>::from_bits(raw_with_unknown & known).unwrap();
+    assert_eq!(filtered, BitFlags::<Erratum>::all());
+
+    // Purely unknown raw values degrade to an empty mask.
+    assert_eq!(
+        BitFlags::<Erratum>::from_bits((1 << 31) & known).unwrap(),
+        BitFlags::empty()
+    );
+
+    // The From<ABI> mapping only ever produces known bits as well.
+    for abi in 0..=10 {
+        let errata: BitFlags<Erratum> = ABI::from(abi).into();
+        assert!(BitFlags::<Erratum>::all().contains(errata));
+    }
 }
 
 #[test]

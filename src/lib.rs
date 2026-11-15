@@ -117,6 +117,7 @@ pub use ruleset::{
 };
 pub use scope::Scope;
 
+use access::quiet_rule_compat;
 use access::PrivateHandledAccess;
 use compat::{CompatResult, CompatState, Compatibility, TailoredCompatLevel, TryCompat};
 use ruleset::PrivateRule;

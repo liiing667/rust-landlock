@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-use crate::compat::{private::OptionCompatLevelMut, try_compat_binary};
+use crate::compat::private::OptionCompatLevelMut;
 use crate::ruleset::QuietRuleCompatibility;
 use crate::{
     uapi, Access, AddRuleError, AddRulesError, CompatError, CompatLevel, CompatResult, CompatState,
@@ -302,15 +302,7 @@ where
                 QuietRuleCompatibility::SupportedIneffective => (true, false),
                 QuietRuleCompatibility::SupportedEffective => (true, true),
             };
-            self.quiet = try_compat_binary(supported, level, compat_state, || {
-                CompatError::<AccessFs>::QuietNotSupported
-            })?;
-            // Quiet may be supported but have no effect after every quiet
-            // access in this rule category has degraded away.  The ruleset
-            // compatibility state already records that degradation.
-            if self.quiet && !effective {
-                self.quiet = false;
-            }
+            self.quiet = crate::quiet_rule_compat(true, supported, effective, level, compat_state)?;
         }
         // Empty allowed access is meaningful only while the rule remains quiet.
         if requested_quiet && self.allowed_access.is_empty() {
